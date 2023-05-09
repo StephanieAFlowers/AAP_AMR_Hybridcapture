@@ -90,8 +90,6 @@ topTags(qlf)
 #Log Transform Counts
 normalized_counts <- cpm(dge, log = TRUE, prior.count = 2) # log-transformed normalized counts
 normalized_counts <- as.data.frame(t(normalized_counts))
-normalized_counts <- normalized_counts[!(rownames(normalized_counts) %in% c("Q4F2_T12", "Q4F2_T0")), ]
-metadata <- metadata[!(metadata$sample_id %in% c("Q4F2_T12", "Q4F2_T0")), ]
 
 # Add the sample metadata to the normalized counts
 counts_with_metadata <- cbind(metadata, normalized_counts)
