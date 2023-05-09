@@ -1,0 +1,58 @@
+setwd("~/Desktop/filtered_reads")
+
+library (gplots)
+library(tools)
+library(data.table)
+library(tidyverse)
+library(edgeR)
+library(rentrez)
+library(readr)
+library(purrr)
+library(dplyr)
+
+##############load read data
+df <- read.csv('trimmedbwtfilteredgenemappingmerged.csv', row.names = 1)
+df[is.na(df)] <- 0
+dim(df)
+df[1:5,1:5]
+t_df <- t(df)
+t_df <- as.data.frame(t_df)
+t_df[1:5,1:5]
+#t_df$gene <- rownames(t_df)
+head(t_df)
+t_df[1:5,1:5]
+##################merge length and reads
+##### gene length
+gene_length <- read.csv("bwtGENEmetadata.csv")
+gene_length [1:5,1:3]
+head(gene_length)
+gene_length$kb <- gene_length$Length / 1000
+gene_length [1:5,1:4]
+#####sligth differences in gene denotations with the two dfs. in same order, will make the same
+gene_length$ARO_Term <- rownames(t_df)
+gene_length [1:5,1:4]
+################merge the 2 dataframes
+
+merged_df <- merge(t_df, gene_length, by.x = "row.names", by.y = "ARO_Term")
+dim(merged_df)
+head(merged_df)
+
+##########################Normalize by TPM- transcripts per million
+# Calculate the sum of values obtained in step 1 for all genes
+col_sums <- colSums(length_normalized_counts)
+
+tpm_counts <- t(t(length_normalized_counts) / col_sums) * 1e6
+dim(tpm_counts)
+tpm_counts[1:5,1:5]
+
+# Bind gene names to TPM values matrix
+tpm_counts2 <- cbind(merged_df$Row.names, tpm_counts)
+tpm_counts2[1:5,1:5]
+row.names(tpm_counts2) <- tpm_counts2[,1]
+tpm_counts <- tpm_counts2[,-1]
+tpm_counts[1:5,1:5]
+head(tpm_counts)
+dim(tpm_counts)
+
+write.csv(tpm_counts,"trimmedTPMnormalizedreads.csv" , row.names = TRUE)
+
