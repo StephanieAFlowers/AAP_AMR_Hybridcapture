@@ -1,0 +1,254 @@
+library(edgeR)
+library(tidyverse)
+library(ggplot2)
+library(coin)
+
+
+df2<-read.csv('trimmedbwtfilteredgenemappingmerged.csv', row.names=1)
+dim(df2)
+# Replace all NA values with 0
+df2[is.na(df2)] <- 0
+#df2[1:5,1:5]
+df <- as.data.frame(t(df2))
+#head(df)
+
+#########get normalized genes in rows
+
+genemetadata <- read.csv("bwtGENEmetadata.csv", sep = ',')
+#dim(genemetadata)
+#genemetadata[1:5,1:3]
+df <- df[order(rownames(df)), ]
+genemetadata <- genemetadata[order(genemetadata$ARO_Term), ]
+#genemetadata$ARO_Term
+genemetadata$ARO_Term <- row.names(df)
+merged_df <- merge(df, genemetadata, by.x = "row.names", by.y = "ARO_Term")
+merged_df[1:5,1:5]
+rownames(merged_df) <- merged_df[, 1]
+merged_df <- merged_df[, -1]
+dim(merged_df)
+f_merged_df <- merged_df[,-c(36:37)]
+
+
+for (i in 1:34) {
+  f_merged_df[, i] <- as.numeric(f_merged_df[, i])
+}
+
+f_merged_df$Gene_Family <- factor(f_merged_df$Gene_Family)
+
+familyagg_df <- aggregate(x = f_merged_df[, -35], by = list(f_merged_df$Gene_Family ), FUN = "sum")
+rownames(familyagg_df) <-familyagg_df[,1]
+familyagg_df[,1] <- NULL
+#familyagg_df[1:5,1:5]
+counts <- familyagg_df
+sample_names <- colnames(counts)
+
+# Add metadata
+metadata <- read.csv("trimmed_metadata.csv")
+metadata <- data.frame(sample_id = sample_names)
+# Extract group, individual, and time information from the sample names
+metadata$group <- as.factor(substr(metadata$sample_id, 1, 1))
+metadata$individual <- as.factor(substr(metadata$sample_id, 1, 4))
+metadata$time <- as.factor(substr(metadata$sample_id, 6, 8))
+# Convert 'C' and 'Q' to more descriptive group names if needed
+metadata$group <- factor(metadata$group, levels = c("C", "Q"), labels = c("Control", "Quetiapine"))
+# Clean up the time factor (replace "T0" with "baseline" and "T12" with "12_weeks")
+metadata$time <- factor(metadata$time, levels = c("T0", "T12"), labels = c("baseline", "12_weeks"))
+metadata$condition <-paste(metadata$group, metadata$time, sep = "_")
+#head(metadata)
+
+dge <- DGEList(counts = counts, group = metadata$group)
+dge$samples$individual <- metadata$individual
+dge$samples$time <- metadata$time
+
+individual <- metadata$individual
+group <- metadata$group
+time <- metadata$time
+
+design <- model.matrix(~ individual)
+Control_12_weeks <- group == "Control" & time == "12_weeks"
+Quetiapine_12_weeks <- group == "Quetiapine" & time == "12_weeks"
+design <- cbind(design, Control_12_weeks, Quetiapine_12_weeks)
+
+# Estimate the dispersion
+dge <- estimateDisp(dge, design)
+
+# Normalize the counts by library size
+dge <- calcNormFactors(dge)
+
+# Apply the filtering step
+keep <- rowSums(dge$counts > 0) >= 5
+dge <- dge[keep, , keep.lib.sizes=FALSE]
+
+# Fit the linear model
+fit <- glmQLFit(dge, design)
+
+# Perform the statistical test to compare the changes between Control and Quetiapine groups
+qlf <- glmQLFTest(fit, coef = "Quetiapine_12_weeks")
+# Get the top differentially expressed genes
+topTags(qlf)
+
+#Log Transform Counts
+normalized_counts <- cpm(dge, log = TRUE, prior.count = 2) # log-transformed normalized counts
+normalized_counts <- as.data.frame(t(normalized_counts))
+normalized_counts <- normalized_counts[!(rownames(normalized_counts) %in% c("Q4F2_T12", "Q4F2_T0")), ]
+metadata <- metadata[!(metadata$sample_id %in% c("Q4F2_T12", "Q4F2_T0")), ]
+
+# Add the sample metadata to the normalized counts
+counts_with_metadata <- cbind(metadata, normalized_counts)
+dim(counts_with_metadata)
+
+# Convert the wide data frame to a long format
+counts_long <- counts_with_metadata %>%
+  pivot_longer(cols = 6:34,
+               names_to = "ARO_Term",
+               values_to = "log_transformed_normalized_count")
+            
+
+# Calculate mean and sd only for the 12-week conditions
+counts_with_stats <- counts_long %>%
+  group_by(ARO_Term, condition) %>%
+  mutate(mean = ifelse(condition %in% c("Control_12_week", "Quetiapine_12_week"), mean(log_transformed_normalized_count), NA),
+         sd = ifelse(condition %in% c("Control_12_week", "Quetiapine_12_week"), sd(log_transformed_normalized_count), NA))
+
+# Mark the outliers only for the 12-week conditions
+counts_with_outliers <- counts_with_stats %>%
+  mutate(is_outlier = ifelse(condition %in% c("Control_12_week", "Quetiapine_12_week"), abs(log_transformed_normalized_count - mean) > 2 * sd, FALSE))
+
+# Remove the outliers only for the 12-week conditions
+counts_filtered <- counts_with_outliers %>%
+  filter(!is_outlier) %>%
+  select(-c("mean", "sd", "is_outlier"))
+
+# Calculate relative change in log-transformed counts from baseline to 12 weeks
+counts_filtered <- counts_long %>%
+  group_by(individual) %>%
+  mutate(relative_log_count = ifelse(condition %in% c("Control_12_weeks", "Quetiapine_12_weeks"), log_transformed_normalized_count - log_transformed_normalized_count[condition == "Control_baseline" | condition == "Quetiapine_baseline"], log_transformed_normalized_count - log_transformed_normalized_count[condition == "Control_baseline" | condition == "Quetiapine_baseline"]))
+
+
+# Filter the data frame to keep only the significant gene families (based on the FDR values you provided)
+significant_gene_families <- c("pmr phosphoethanolamine transferase",
+                               "ATP-binding cassette (ABC) antibiotic efflux pump; major facilitator superfamily (MFS) antibiotic efflux pump; resistance-nodulation-cell division (RND) antibiotic efflux pump", "resistance-nodulation-cell division (RND) antibiotic efflux pump", 
+                               "major facilitator superfamily (MFS) antibiotic efflux pump; resistance-nodulation-cell division (RND) antibiotic efflux pump",
+                               "undecaprenyl pyrophosphate related proteins",
+                               "small multidrug resistance (SMR) antibiotic efflux pump")
+counts_filtered <- counts_filtered %>%
+  filter(ARO_Term %in% significant_gene_families)
+  
+  
+# Updating gene family names
+counts_filtered <- counts_filtered %>%
+  mutate(ARO_Term = case_when(
+    ARO_Term == "ATP-binding cassette (ABC) antibiotic efflux pump; major facilitator superfamily (MFS) antibiotic efflux pump; resistance-nodulation-cell division (RND) antibiotic efflux pump" ~ "ABC-MFS-RND Efflux Pump",
+    ARO_Term == "resistance-nodulation-cell division (RND) antibiotic efflux pump" ~ "RND Efflux Pump",
+    ARO_Term == "major facilitator superfamily (MFS) antibiotic efflux pump; resistance-nodulation-cell division (RND) antibiotic efflux pump" ~ "MFS-RND Efflux Pump",
+    ARO_Term == "small multidrug resistance (SMR) antibiotic efflux pump" ~ "SMR Efflux Pump",
+    ARO_Term == "undecaprenyl pyrophosphate related proteins" ~ "Undecaprenyl Pyrophosphate Proteins",
+    ARO_Term == "pmr phosphoethanolamine transferase" ~ "Phosphoethanolamine Transferase",
+    TRUE ~ ARO_Term
+  ))
+
+counts_filtered$condition <- factor(counts_filtered$condition, levels = c("Control_baseline", "Control_12_weeks", "Quetiapine_baseline", "Quetiapine_12_weeks"))
+
+
+# Calculate the mean for the 12 week time points
+mean_data <- counts_filtered %>%
+  filter(condition %in% c("Control_12_weeks", "Quetiapine_12_weeks")) %>%
+  group_by(condition, ARO_Term) %>%
+  summarize(mean_relative_log_count = mean(relative_log_count), .groups = "drop")
+
+# Change the levels of ARO_Term variable in counts_long data frame
+counts_filtered$ARO_Term <- factor(counts_filtered$ARO_Term, levels = c("ABC-MFS-RND Efflux Pump", "MFS-RND Efflux Pump", "RND Efflux Pump", "SMR Efflux Pump", "Pmr Phosphoethanolamine Transferase", "Undecaprenyl Pyrophosphate Proteins"))
+
+# plot
+plot <- ggplot(counts_filtered, aes(x = condition, y = relative_log_count, color = group)) +
+  geom_point() +
+  geom_line(aes(group = individual)) +
+  facet_wrap(~ARO_Term, ncol = 3, drop= TRUE) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
+        legend.position = "none",
+        panel.spacing = unit(0.5, "lines")) + # Adjust panel spacing between facets
+  scale_color_manual(values = c("Control" = "blue", "Quetiapine" = "red")) +
+  xlab("") + # Add X-axis title
+  scale_x_discrete(
+    labels = c("C T0", "C T12", "Q T0", "Q T12"),
+    breaks = c("Control_baseline", "Control_12_weeks", "Quetiapine_baseline", "Quetiapine_12_weeks")
+  ) +
+  ylab(expression(paste("Log"[2], " FC"))) + # Change Y-axis title
+  theme(axis.title.y = element_text(size = 22), # Increase Y-axis title size
+        strip.text = element_text(size = 22), # Increase facet title size
+        axis.text.y = element_text(size = 18)) # Increase Y-axis labels size
+
+# Add a boxplot for the 12 week time points
+plot <- plot + 
+  geom_boxplot(
+    data = counts_filtered %>% filter(condition %in% c("Control_12_weeks", "Quetiapine_12_weeks")), 
+    aes(x = condition, y = relative_log_count, color = ARO_Term),
+    width = 0.9, fill = "71gray", outlier.shape = NA, alpha = 0.7
+  )
+
+	print(plot)
+	
+	
+# Save plot as tiff file
+#tiff("Nameofyourfigure.tiff", res = 300, height = 4000, width = 5500)
+#plot
+#dev.off()
+
+
+
+# Filter the dataset to include only the two conditions of interest
+counts_12_weeks <- counts_filtered %>% filter(condition %in% c("Control_12_weeks", "Quetiapine_12_weeks"))
+
+# Identify unique genes in ARO_Term
+unique_genes <- unique(counts_12_weeks$ARO_Term)
+
+# Initialize an empty data frame to store the results
+p_values <- data.frame(ARO_Term = character(), p_value = numeric())
+
+# Iterate through unique genes and perform a permutation test for each gene
+for (gene in unique_genes) {
+  gene_data <- na.omit(counts_12_weeks) %>% filter(ARO_Term == gene)
+  group_var <- factor(gene_data$condition)
+  response_var <- gene_data$log_transformed_normalized_count
+  
+  # Perform the permutation test
+  perm_test <- independence_test(response_var ~ group_var, distribution = approximate(nresample = 9999))
+  
+  # Store the p-value in the data frame
+  p_values <- rbind(p_values, data.frame(ARO_Term = gene, p_value = pvalue(perm_test)))
+}
+
+# Adjust p-values using the Benjamini-Hochberg method or any other method of your choice
+p_values$adjusted_p_value <- p.adjust(p_values$p_value, method = "BH")
+
+# Create a data frame with the gene names, original p-values, and adjusted p-values
+p_values_df <- data.frame(Gene = p_values$ARO_Term, P_value = p_values$p_value, Adjusted_p_value = p_values$adjusted_p_value)
+
+p_values_df
+
+# Define the significance level
+alpha <- 0.05
+
+# Initialize an empty data frame to store the Levene's test results
+levene_test_results <- data.frame(ARO_Term = character(), F_value = numeric(), p_value = numeric(), stringsAsFactors = FALSE)
+
+
+# Perform Levene's test for each unique ARO_Term
+for (aro_term in unique_genes) {
+  # Filter the data for the current ARO_Term
+  aro_term_data <- counts_12_weeks[counts_12_weeks$ARO_Term == aro_term, ]
+  
+  # Perform Levene's test
+  levene_test_result <- car::leveneTest(aro_term_data$relative_log_count, aro_term_data$condition, center = mean)
+  
+  # Save the test result with adjusted p-value
+  levene_test_results <- rbind(levene_test_results, data.frame(ARO_Term = aro_term,
+                                                               F_value = levene_test_result[1, "F value"],
+                                                               p_value = p.adjust(levene_test_result[1, "Pr(>F)"], method = "BH"),
+                                                               stringsAsFactors = FALSE))
+}
+
+# Print the results
+print(levene_test_results)
+
