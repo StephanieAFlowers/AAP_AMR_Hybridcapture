@@ -5,27 +5,23 @@ library(coin)
 
 
 df2<-read.csv('trimmedbwtfilteredgenemappingmerged.csv', row.names=1)
-dim(df2)
+
 # Replace all NA values with 0
 df2[is.na(df2)] <- 0
-#df2[1:5,1:5]
 df <- as.data.frame(t(df2))
-#head(df)
+
 
 #########get normalized genes in rows
 
 genemetadata <- read.csv("bwtGENEmetadata.csv", sep = ',')
-#dim(genemetadata)
-#genemetadata[1:5,1:3]
 df <- df[order(rownames(df)), ]
 genemetadata <- genemetadata[order(genemetadata$ARO_Term), ]
-#genemetadata$ARO_Term
+
 genemetadata$ARO_Term <- row.names(df)
 merged_df <- merge(df, genemetadata, by.x = "row.names", by.y = "ARO_Term")
-merged_df[1:5,1:5]
+
 rownames(merged_df) <- merged_df[, 1]
 merged_df <- merged_df[, -1]
-dim(merged_df)
 f_merged_df <- merged_df[,-c(36:37)]
 
 
@@ -38,7 +34,6 @@ f_merged_df$Gene_Family <- factor(f_merged_df$Gene_Family)
 familyagg_df <- aggregate(x = f_merged_df[, -35], by = list(f_merged_df$Gene_Family ), FUN = "sum")
 rownames(familyagg_df) <-familyagg_df[,1]
 familyagg_df[,1] <- NULL
-#familyagg_df[1:5,1:5]
 counts <- familyagg_df
 sample_names <- colnames(counts)
 
@@ -54,7 +49,7 @@ metadata$group <- factor(metadata$group, levels = c("C", "Q"), labels = c("Contr
 # Clean up the time factor (replace "T0" with "baseline" and "T12" with "12_weeks")
 metadata$time <- factor(metadata$time, levels = c("T0", "T12"), labels = c("baseline", "12_weeks"))
 metadata$condition <-paste(metadata$group, metadata$time, sep = "_")
-#head(metadata)
+
 
 dge <- DGEList(counts = counts, group = metadata$group)
 dge$samples$individual <- metadata$individual
@@ -193,7 +188,7 @@ plot <- plot +
 #plot
 #dev.off()
 
-
+##statistics
 
 # Filter the dataset to include only the two conditions of interest
 counts_12_weeks <- counts_filtered %>% filter(condition %in% c("Control_12_weeks", "Quetiapine_12_weeks"))
