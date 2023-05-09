@@ -1,0 +1,84 @@
+library(dplyr)
+library(purrr)
+library(gplots)
+
+            
+df<-read.csv('yourmergedfilename.csv', row.names=1)
+df[is.na(df)] <- 0
+
+metadata <- read.csv('trimmed_metadata.csv')
+
+df$sample <- row.names(df) # create a new column for the row names
+df$sample2 <- df$sample
+dfdf <- merge(df, metadata, by.x="sample2", by.y="sample_id")
+
+dfdf <- dfdf[,-136] #remove extra sample row
+
+df<-dfdf
+rownames(df) <-df[,1]
+df[,1] <- NULL
+
+###5 conditions
+fdf3 <- df
+
+
+# Transpose the dataframe
+transposed_fdf3 <- t(fdf3)
+
+# Function to check if a gene has at least 1 count in 5 different samples
+at_least_n_samples <- function(x, n = 5) {
+  return(sum(x >= 1) >= n)
+}
+
+# Apply the function to each row (gene) in the transposed dataframe
+genes_to_keep <- apply(transposed_fdf3, 1, at_least_n_samples)
+
+# Filter the transposed dataframe using the result of the apply function
+filtered_transposed_fdf3 <- transposed_fdf3[genes_to_keep,]
+
+# Transpose the filtered dataframe back to the original format
+fdf3 <- as.data.frame(t(filtered_transposed_fdf3))
+dim(fdf3)
+
+# subset and summarize data for the baseline condition
+baseline <- subset(fdf3, condition %in% c("Control_baseline", "Quetiapine_baseline"))
+baseline <- baseline[,1:134]
+baseline <- as.data.frame(lapply(baseline, as.numeric))
+baseline_sums <- colSums(baseline)
+baseline_sums <- as.data.frame(baseline_sums)
+names(baseline_sums) <- "Baseline"
+
+c12<-subset(fdf3, fdf3$condition == "Control_12_weeks")
+c12<-c12[,1:134]
+c12 <- as.data.frame(lapply(c12, as.numeric))
+c12_sums<-colSums(c12)
+c12_sums <- as.data.frame(c12_sums)
+colnames(c12_sums)[1] <- "Control_12_Weeks"
+
+
+q12<-subset(fdf3, fdf3$condition == "Quetiapine_12_weeks")
+q12<-q12[,1:134]
+q12 <- as.data.frame(lapply(q12, as.numeric))
+q12_sums<-colSums(q12)
+q12_sums <- as.data.frame(q12_sums)
+
+merge.all <- function(x, ..., by = "row.names") {
+  L <- list(...)
+  for (i in seq_along(L)) {
+    x <- merge(x, L[[i]], by = by)
+    rownames(x) <- x$Row.names
+    x$Row.names <- NULL
+  }
+  return(x)
+}
+dataf<- merge.all(baseline_sums, c12_sums, q12_sums)
+dataf <- as.data.frame(dataf)
+list <- lapply(dataf, function(x) ifelse(x == "0", "absent", "present"))
+
+# Create a list of vectors for each condition containing the genes that are present
+present_genes <- list()
+for (i in 1:3) {
+  present_genes[[i]] <- rownames(dataf)[dataf[,i] > 0]
+}
+
+table <- venn(present_genes)
