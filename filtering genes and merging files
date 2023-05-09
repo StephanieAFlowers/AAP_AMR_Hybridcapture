@@ -1,0 +1,55 @@
+library(readr)
+library(tools)
+library(data.table)
+library(tidyverse)
+
+folder_path <- "~/path/to/files" # Replace with the path to your folder containing the RGI generated mapped reads files
+input_files <- list.files(folder_path, pattern = "*.txt", full.names = TRUE)
+
+thresholds <- c(0.8, 0.8, 0.8)
+threshold_names <- c("All Mapped Reads", "Average Percent Coverage", "Reference Length")
+
+weights <- c(1, 0.1, 0.5) # Increase the weight for "All Mapped Reads" and decrease for "Average Percent Coverage"
+weight_names <- c("All Mapped Reads", "Average Percent Coverage", "Reference Length")
+
+for (input_file in input_files) {
+  data <- read_delim(input_file, delim = "\t", na = c("", "NA"), trim_ws = TRUE)
+
+  filtered_data <- data %>%
+    mutate(`All Mapped Reads` = as.numeric(`All Mapped Reads`),
+           `Average Percent Coverage` = as.numeric(`Average Percent Coverage`)) %>%
+    filter(`All Mapped Reads` >= 10,
+           `Average Percent Coverage` >= 40) %>%
+    filter(!!sym(threshold_names[1]) >= thresholds[1] * !!sym(threshold_names[2]),
+           !!sym(threshold_names[2]) >= thresholds[2],
+           !!sym(threshold_names[3]) >= thresholds[3] * 100) %>%
+    mutate(Weighted_Score = (!!sym(weight_names[1]))/!!sym(threshold_names[3])*weights[1] + 
+             (!!sym(weight_names[2]))*weights[2] + 
+             (!!sym(weight_names[3]))*weights[3])
+
+  output_dir <- getwd()
+
+  # Create a new file name for the filtered data
+  new_file_name <- paste0(output_dir, "/", basename(input_file), "2_filtered.csv")
+  write.csv(filtered_data, new_file_name)
+}
+
+####################################################################################################################
+#making merged file
+#########################################################################################################################
+
+file_names <- list.files(pattern="[A-Z0-9]+_T\\d+\\.gene_mapping_data.txt_filtered.csv$", full.names = F, recursive = FALSE)
+
+csv_list <- lapply(file_names, function(file_name) {
+  data <- read.csv(file_name, sep=',', stringsAsFactors = FALSE, check.names = FALSE)
+  data <- data[, c(2, 13)]
+  col_name <- gsub(".gene_mapping_data.txt_filtered.csv$", "", file_name)
+  names(data)[2] <- col_name
+  data
+})
+
+merged_data <- Reduce(function(x, y) merge(x, y, by = "ARO Term", all = TRUE), csv_list)
+rownames(merged_data) <-merged_data[,1]
+merged_data[,1] <- NULL
+merged_data2 <- t(merged_data)
+write.csv(merged_data2, file="yourmergedfilename.csv", row.names=T)
