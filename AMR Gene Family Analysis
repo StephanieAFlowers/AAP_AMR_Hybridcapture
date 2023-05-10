@@ -97,17 +97,15 @@ counts_long <- counts_with_metadata %>%
                values_to = "log_transformed_normalized_count")
             
 
-# Calculate mean and sd only for the 12-week conditions
+# Calculate mean and sd 
 counts_with_stats <- counts_long %>%
   group_by(ARO_Term, condition) %>%
   mutate(mean = ifelse(condition %in% c("Control_12_week", "Quetiapine_12_week"), mean(log_transformed_normalized_count), NA),
          sd = ifelse(condition %in% c("Control_12_week", "Quetiapine_12_week"), sd(log_transformed_normalized_count), NA))
 
-# Mark the outliers only for the 12-week conditions
+# Mark and remobe outliers
 counts_with_outliers <- counts_with_stats %>%
   mutate(is_outlier = ifelse(condition %in% c("Control_12_week", "Quetiapine_12_week"), abs(log_transformed_normalized_count - mean) > 2 * sd, FALSE))
-
-# Remove the outliers only for the 12-week conditions
 counts_filtered <- counts_with_outliers %>%
   filter(!is_outlier) %>%
   select(-c("mean", "sd", "is_outlier"))
@@ -150,7 +148,7 @@ mean_data <- counts_filtered %>%
   summarize(mean_relative_log_count = mean(relative_log_count), .groups = "drop")
 
 # Change the levels of ARO_Term variable in counts_long data frame
-counts_filtered$ARO_Term <- factor(counts_filtered$ARO_Term, levels = c("ABC-MFS-RND Efflux Pump", "MFS-RND Efflux Pump", "RND Efflux Pump", "SMR Efflux Pump", "Pmr Phosphoethanolamine Transferase", "Undecaprenyl Pyrophosphate Proteins"))
+counts_filtered$ARO_Term <- factor(counts_filtered$ARO_Term, levels = c("ABC-MFS-RND Efflux Pump", "MFS-RND Efflux Pump", "RND Efflux Pump", "SMR Efflux Pump", "Phosphoethanolamine Transferase", "Undecaprenyl Pyrophosphate Proteins"))
 
 # plot
 plot <- ggplot(counts_filtered, aes(x = condition, y = relative_log_count, color = group)) +
