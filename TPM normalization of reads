@@ -1,5 +1,3 @@
-setwd("~/Desktop/filtered_reads")
-
 library (gplots)
 library(tools)
 library(data.table)
@@ -8,7 +6,6 @@ library(edgeR)
 library(rentrez)
 library(readr)
 library(purrr)
-library(dplyr)
 
 ##############load read data
 df <- read.csv('yourmergedfilename.csv', row.names = 1)
