@@ -1,0 +1,125 @@
+library(tidyverse)
+library(ggplot2)
+library(tibble)
+
+
+  
+data <- read.csv("MIC.csv", header=T, row.names = 1)
+data <- data[,-7]
+head(data)
+  
+  
+# Separate the numeric and non-numeric data
+data_num <- data %>%
+  select(-Ref)
+
+data_non_num <- data %>%
+  select(Ref)
+
+# Log transformation of numeric data
+data_num_log2 <- log2(data_num + 1)
+
+# Combine the transformed and non-numeric data
+data_log2 <- bind_cols(data_non_num, data_num_log2)
+
+# Reshape the data to long format
+data_long <- data_log2 %>%
+  pivot_longer(cols = -Ref, names_to = "antibiotic", values_to = "log2_fold_change")
+
+ ##Group4 Control and Quetiapine for Control
+
+group4 <- data_long %>%
+  filter(Ref %in% c("Control", "Quetiapine"))
+
+
+# Filter group3 for only Colistin 
+group4_filtered <- group4 %>%
+  filter(antibiotic %in% c("Colistin")) 
+  
+ 
+ # Calculate the mean and standard deviation for each group
+group4_filtered <- group4_filtered %>%
+  group_by(Ref) %>%
+  mutate(mean = mean(log2_fold_change, na.rm = TRUE),
+         sd = sd(log2_fold_change, na.rm = TRUE)) %>%
+  ungroup()
+
+# Create a new variable that checks whether each data point is within 2 standard deviations from the mean
+group4_filtered <- group4_filtered %>%
+  mutate(log2_fold_change_within_2sd = ifelse((log2_fold_change < mean - 2*sd) | (log2_fold_change > mean + 2*sd), NA, log2_fold_change))
+
+#print(group4_filtered, n = 50)
+
+# Perform Wilcoxon test
+wilcox.test(log2_fold_change_within_2sd ~ Ref, data = group4_filtered, na.action = na.exclude)
+
+
+p <- ggplot(group4_filtered, aes(x = Ref, y = log2_fold_change_within_2sd)) +
+  geom_boxplot(aes(fill = Ref), color = c("black", "red"), width = 0.3, outlier.shape = NA, fill = "transparent") +
+  geom_jitter(data = subset(group4_filtered, Ref == "Control"), aes(shape = Ref), color = "black", fill = "black", width = 0.2, size = 2) +
+  geom_jitter(data = subset(group4_filtered, Ref == "Quetiapine"), aes(shape = Ref), color = "black", fill = "white", width = 0.2, size = 2) +
+  scale_fill_manual(values = c("Control" = "black", "Quetiapine" = "red"), 
+                    guide = guide_legend(title = "", 
+                                         override.aes = list(shape = c(21, 21), color = c("black", "black"), fill = c("black", "white")))) +
+  scale_shape_manual(values = c("Control" = 21, "Quetiapine" = 21), 
+                     guide = guide_legend(title = "", 
+                                          override.aes = list(fill = c("black", "white"), color = c("black", "black")))) +
+  labs(y = expression(paste("Log"[2], " MIC")), x = expression(paste("Mouse-derived", italic(" E. coli"), " Isolates"))) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(size = 16, hjust = 0.5),
+        axis.title.y = element_text(size = 16, vjust = 0.5),
+        axis.title.x = element_text(size = 16),
+        axis.text = element_text(size = 14),
+        axis.ticks.x = element_blank())
+
+
+p
+
+
+data <- read.csv("MIC.csv", header=T, row.names = 1)
+data <- data[,-7]
+head(data)
+
+# Reshape the data to long format
+data_long2 <- data %>%
+  pivot_longer(cols = -Ref, names_to = "antibiotic", values_to = "MICs")
+
+ ##Group5 25922, A-F
+group5 <- data_long2 %>%
+  filter(Ref %in% c("25922", "A", "B", "C", "D", "E", "F"))
+
+
+# Filter group3 for only Colistin 
+group5_filtered <- group5 %>%
+  filter(antibiotic %in% c("Colistin")) 
+  
+# Order the factor levels for the MICs data
+group5_filtered$MICs <- factor(group5_filtered$MICs, levels = c(0.125, 0.25, 0.5, 1, 2, 4, 8, 16, 32))
+
+b <- ggplot(group5_filtered, aes(x = Ref, y = factor(MICs), fill = antibiotic)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  scale_fill_manual(values = c("Colistin" = "black")) +
+  scale_y_discrete(limits = c("0.125", "0.25", "0.5", "1", "2", "4", "8", "16")) +
+  theme_minimal() +
+  labs(y = "Colistin MICs",
+       title = "",
+       x = expression(italic("In vitro E. coli") ~ "isolates")) +
+  theme(legend.position = "none",
+        plot.title = element_text(size = 16, hjust = 0.5),
+        axis.title.y = element_text(size = 16, vjust = 0.5),
+        axis.title.x = element_text(size = 16),
+        axis.text = element_text(size = 14),
+        axis.ticks.x = element_blank())
+b
+
+ library(patchwork)
+
+
+combined_plot <- b + p
+
+tiff("colistinMICs.tiff", res=300, width = 2300, height= 1500)
+combined_plot
+dev.off()
+
+
